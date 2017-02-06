@@ -8,7 +8,7 @@ library(choroplethr)
 library(dplyr)
 library(readr)
 library(data.table)
-
+library("ggplot2")
 # I like downloading straight from url's.  
 # If I was planning to share this code in a long time, I would worry about stability of the accessibility (url/data/format) and maybe backup locally.
 # For class, downloading is straightforward.
@@ -67,24 +67,8 @@ x16 = ldply(dest, fread, colClasses = classes)
 # let's dig into the values and see if there are any crazy things going on...
 M = x16
 M = M[,-14]
-is.na(M) %>% rowSums %>% hist
-is.na(M) %>% colSums %>% hist(breaks = 100)
-fun = function(x){ return(which(x>20)) }
-(bad =  is.na(M) %>% colSums %>% fun)
-M = M[,-bad]
-jold =1
-for(j in jold:ncol(M)){
-  nc = nchar(M[,j], keepNA = T)
-  print(j)
-  print(summary(nc))
-  print(sum(is.na(nc)))
-  print("")
-}
-colnames(M)[j]
-M = M[,-j]
-jold = j
 
-colnames(M)
+
 # [1] "STATE_CODE_001"          "STRUCTURE_NUMBER_008"    "RECORD_TYPE_005A"        "ROUTE_PREFIX_005B"       "SERVICE_LEVEL_005C"      "ROUTE_NUMBER_005D"       "DIRECTION_005E"          "HIGHWAY_DISTRICT_002"   
 # [9] "COUNTY_CODE_003"         "PLACE_CODE_004"          "FEATURES_DESC_006A"      "FACILITY_CARRIED_007"    "MIN_VERT_CLR_010"        "KILOPOINT_011"           "LRS_INV_ROUTE_013A"      "LAT_016"                
 # [17] "LONG_017"                "DETOUR_KILOS_019"        "TOLL_020"                "MAINTENANCE_021"         "OWNER_022"               "FUNCTIONAL_CLASS_026"    "YEAR_BUILT_027"          "TRAFFIC_LANES_ON_028A"  
@@ -105,82 +89,45 @@ keep = c("STATE_CODE_001", "STRUCTURE_NUMBER_008" , "COUNTY_CODE_003", "LAT_016"
 # x = M[,match(keep, colnames(M))]
 M = as.tbl(M)
 x = select(M, one_of(keep))  # see chapter 5 (section 4) in r4ds.
+x = mutate(x,lat = LAT_016/1000000, lon = LONG_017/1000000)
+location<-x[,19:20]
+location<-location[location$lon>50&location$lon<150,]
+location<-location[location$lat>25&location$lat<50,]
 
-wi = filter(x, STATE_CODE_001 == 55)
-wi
-library(ggplot2)
-ggplot(data = wi) +geom_point(mapping = aes(y = LAT_016, x = LONG_017))
-wi = filter(wi,LONG_017 > 0)
-ggplot(data = wi) +geom_point(mapping = aes(y = LAT_016, x = LONG_017))
-
-min2dec = function(x){
-  substr(x,3,8) %>% return
-}
-hist(wi$LAT_016 %>% min2dec %>% as.numeric)
-
-min2dec = function(x){
-  as.numeric(substr(x,1,2)) + as.numeric(substr(x,3,8))/6e+05 %>% return
-}
-min2dec(wi$LAT_016[1])
-hist(wi$LAT_016 %>% min2dec %>% as.numeric)
-
-wi = mutate(wi,lat = min2dec(LAT_016), lon = min2dec(LONG_017))
-ggplot(data = wi) +geom_point(mapping = aes(y = lat, x = lon))
-
-wi = filter(wi,lon<100)
-ggplot(data = wi) +geom_point(mapping = aes(y = lat, x = lon))
-
-ggplot(data = wi) +geom_point(mapping = aes(y = lat, x = lon,col =TOLL_020))
-ggplot(data = wi) +geom_point(mapping = aes(y = lat, x = lon,col =YEAR_BUILT_027))
-ggplot(data = wi) +geom_point(mapping = aes(y = log(ADT_029), x =YEAR_BUILT_027))
-ggplot(data = wi, mapping = aes(y = log(ADT_029), x =YEAR_BUILT_027, col = TOLL_020)) +geom_point() + geom_smooth()
-
-ggplot(data = wi, mapping = aes(y = log(ADT_029), x =YEAR_BUILT_027, col = SUPERSTRUCTURE_COND_059)) +geom_point() + geom_smooth(method = "loess", span = .7)
+#geo distuibution
+install.packages("hexbin")
+require("hexbin")
+plot(hexbin(location$lat,location$lon, xbins = 20),
+     main = "the dense plot of bridge in United State",xlab="latitude",ylab="longitude")
 
 
-# make function to rate bridge as NA, good, bad, fail, using 
-# colnames(wi)[10:13]
-# "SUPERSTRUCTURE_COND_059" "SUBSTRUCTURE_COND_060"   "CHANNEL_COND_061"        "CULVERT_COND_062"  
-# good = 5:9
-# bad = 2:4
-# fail = 0:1
+#year different
+ydata<-x[,c(9,19,20)]
 
-# cond "condition" is the minimum of the given ratings. 
-wi = mutate(wi, cond = pmin(SUPERSTRUCTURE_COND_059, SUBSTRUCTURE_COND_060, CHANNEL_COND_061,CULVERT_COND_062, 
-                       na.rm = T))
+install.packages("rgl")
+require(rgl)
+plot3d(ydata$lat,ydata$lon,2017-ydata$YEAR_BUILT_027, col = "red",size=5,xlab="latitude",ylab="longitude",zlab = "year",
+       main="the 3D plot of bridge year in United State")
 
-rateIt = function(cond){
-  # gives a good to fail rating for cond.
-  rate = rep("good", length(cond))
-  rate[cond<5] = "bad"
-  rate[cond <2]= "fail"
-  return(rate)
-}
 
-wi$rate = rateIt(wi$cond)
-table(wi$cond)
-table(wi$rate)
-wi = filter(wi, cond>1)
-ggplot(data = wi, mapping = aes(y = log(ADT_029), x =YEAR_BUILT_027, col = rate)) +geom_point() + geom_smooth()
+table(x$YEAR_ADT_030)
 
-map = ggplot(data = wi, mapping = aes(y = lat, x = lon))
-map + geom_point(aes(col=rate))+ scale_colour_brewer(palette = "Spectral")  
 
-# where are these bad roads?!!??
-ggplot(data = wi, mapping = aes(x = rate, y = log(ADT_029))) + geom_boxplot()
-colnames(wi)
+#ADT analyse
+adtdata<-x[,c(7,8,19,20)]
+data1<-adtdata[adtdata$YEAR_ADT_030==2015,]
+data0<-adtdata[adtdata$YEAR_ADT_030==2010,]
+r0<-sqrt(data0$ADT_029/pi)
+r1<-sqrt(data1$ADT_029/pi)
+symbols(data0$lat,data0$lon,circle=r0,inches = 0.5,fg="white",bg="lightblue",main = "Bubble plot whith point size proportional to ADT in 2010",
+        xlab="latitude",ylab="longitude")
 
-# use a data playground!
+symbols(data1$lat,data1$lon,circle=r1,inches = 0.5,fg="white",bg="lightblue",main = "Bubble plot whith point size proportional to ADT in 2015",
+        xlab="latitude",ylab="longitude")
+install.packages("corrgram")
+library(corrgram)
+x = select(M, one_of(keep)) 
+corrgram(x,order=TRUE, lower.panel = panel.shade,upper.panel = panel.pie,text.panel = panel.txt,main="Correlogram of bridge intercorrelations")
 
-wi = mutate(wi, fips = STATE_CODE_001*1000+COUNTY_CODE_003)
-wi = wi %>% mutate(fips = STATE_CODE_001*1000+COUNTY_CODE_003)
-wi$fips %>% head
 
-wi = wi %>% mutate(good = (rate == "good"))
-table(wi$good)
-dat = wi %>% group_by(fips) %>% summarize(propGoodRoads = mean(good))
-  
-# dat = wi %>% group_by(good) %>% summarize(tmp = mean(lat))
-
-dat %>% transmute(region = fips, value = propGoodRoads) %>% county_choropleth(state_zoom = "wisconsin")
 
